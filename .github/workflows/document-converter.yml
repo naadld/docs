@@ -116,6 +116,7 @@ jobs:
                       except Exception as ex:
                           print(f"Download attempt {attempt} failed: {ex}")
                       time.sleep(2 * attempt)
+              else:
                   # Large file download (> 20MB) via Pyrogram MTProto Engine
                   print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
                   try:
@@ -143,7 +144,7 @@ jobs:
                       err_msg = str(pex)
                       print("Pyrogram Download Exception:", err_msg)
                       send_tg_msg(f"⚠️ <b>HaRI GitHub:</b> Large File Download Error!\n\n<code>{err_msg}</code>\n\nPlease check your TELEGRAM_API_ID and TELEGRAM_API_HASH in GitHub Secrets.")
-
+                      sys.exit(0)
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
               send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
               sys.exit(0)
