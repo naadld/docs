@@ -3,6 +3,8 @@ import { Env, TelegramUpdate, TelegramMessage } from './types';
 import { sendTelegramMessage, answerCallbackQuery, registerWebhook } from './telegram';
 import { getVPSList, findVPS, fetchVPSStatus, execVPSCommand, rebootVPS } from './vps';
 import { processOfficeDocument, handleOfficeAction } from './office';
+import { handleTorrentAction } from './torrent';
+import { handleMediaAction } from './media';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -48,8 +50,8 @@ app.post('/webhook', async (c) => {
 
     // Topic 5 (Torrents) Handler
     if (threadId === 5) {
-      if (msg.document || (msg.text && (msg.text.startsWith('magnet:') || msg.text.includes('http://') || msg.text.includes('https://')))) {
-        await promptTorrentActions(c.env, chatId, threadId, msg.text || msg.document?.file_name || 'Torrent Task');
+      if (msg.document || (msg.text && (msg.text.startsWith('magnet:') || msg.text.includes('http://') || msg.text.includes('https://') || msg.text.endsWith('.torrent')))) {
+        await promptTorrentActions(c.env, chatId, threadId, msg);
         return c.text('OK');
       }
     }
@@ -57,7 +59,7 @@ app.post('/webhook', async (c) => {
     // Topic 6 (Media) Handler
     if (threadId === 6) {
       if (msg.text && (msg.text.includes('http://') || msg.text.includes('https://'))) {
-        await promptMediaActions(c.env, chatId, threadId, msg.text.trim());
+        await promptMediaActions(c.env, chatId, threadId, msg.text.trim(), msg);
         return c.text('OK');
       }
     }
@@ -189,16 +191,18 @@ async function promptOfficeActions(env: Env, chatId: number | string, threadId: 
 👇 <i>Choose what to proceed:</i>
   `.trim();
 
-  // Send prompt replying directly to user's document message so callback query retains reply_to_message
   await sendTelegramMessage(env, chatId, promptText, 'HTML', officeKeyboard, threadId, msg.message_id);
 }
 
 /**
  * Prompt interactive options when Torrent/Magnet is sent to Topic 5
  */
-async function promptTorrentActions(env: Env, chatId: number | string, threadId: number | undefined, targetText: string) {
+async function promptTorrentActions(env: Env, chatId: number | string, threadId: number | undefined, msg: TelegramMessage) {
   const botRole = env.TARGET_VPS_ID || 'hariinc';
   if (botRole !== 'hariinc') return;
+
+  const doc = msg.document;
+  const targetText = doc ? (doc.file_name || 'Torrent File') : (msg.text || 'Magnet Task');
 
   const keyboard = {
     inline_keyboard: [
@@ -217,13 +221,13 @@ async function promptTorrentActions(env: Env, chatId: number | string, threadId:
 👇 <i>Please select download method:</i>
   `.trim();
 
-  await sendTelegramMessage(env, chatId, text, 'HTML', keyboard, threadId);
+  await sendTelegramMessage(env, chatId, text, 'HTML', keyboard, threadId, msg.message_id);
 }
 
 /**
  * Prompt interactive options when Media link (YouTube single/playlist, TikTok, FB) is sent to Topic 6
  */
-async function promptMediaActions(env: Env, chatId: number | string, threadId: number | undefined, mediaUrl: string) {
+async function promptMediaActions(env: Env, chatId: number | string, threadId: number | undefined, mediaUrl: string, msg?: TelegramMessage) {
   const botRole = env.TARGET_VPS_ID || 'hariinc';
   if (botRole !== 'hariinc') return;
 
@@ -279,12 +283,12 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
   const promptMsg = `
 🎬 <b>${mediaTypeLabel} REGISTERED</b>
 
-🔗 <b>Link:</b> <code>${escapeHtml(mediaUrl.substring(0, 80))}</code>
+🔗 <b>Link:</b> <code>${escapeHtml(mediaUrl.substring(0, 120))}</code>
 
 👇 <i>Please select download option:</i>
   `.trim();
 
-  await sendTelegramMessage(env, chatId, promptMsg, 'HTML', keyboard, threadId);
+  await sendTelegramMessage(env, chatId, promptMsg, 'HTML', keyboard, threadId, msg ? msg.message_id : undefined);
 }
 
 /**
@@ -514,47 +518,6 @@ async function rebootTargetVPS(env: Env, chatId: number | string, threadId: numb
   await sendTelegramMessage(env, chatId, `⏳ Executing reboot sequence for <b>${nodeName}</b>...`, 'HTML', undefined, threadId);
 }
 
-async function processServerlessMedia(env: Env, chatId: number | string, threadId: number | undefined, mediaUrl: string, mode: 'video' | 'audio', platform: string) {
-  if (!mediaUrl) {
-    await sendTelegramMessage(env, chatId, `⚠️ Please provide a media URL: <code>/${platform} &lt;link_url&gt;</code>`, 'HTML', undefined, threadId);
-    return;
-  }
-
-  await sendTelegramMessage(env, chatId, `⏳ <b>Processing [${platform.toUpperCase()}] media link...</b>\n<code>${mediaUrl}</code>`, 'HTML', undefined, threadId);
-
-  try {
-    const res = await fetch('https://api.cobalt.tools/api/json', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'TelegramBotWorker/1.0',
-      },
-      body: JSON.stringify({
-        url: mediaUrl,
-        downloadMode: mode === 'audio' ? 'audio' : 'auto',
-        audioFormat: 'mp3',
-        filenamePattern: 'basic',
-      }),
-    });
-
-    const data: any = await res.json();
-
-    if (data.status === 'stream' || data.status === 'redirect') {
-      const responseMsg = `
-✅ <b>Your [${platform.toUpperCase()}] file is ready for download:</b>
-
-📥 <b><a href="${data.url}">Click Here for Direct High-Speed Download</a></b>
-      `;
-      await sendTelegramMessage(env, chatId, responseMsg, 'HTML', undefined, threadId);
-    } else {
-      await sendTelegramMessage(env, chatId, `📥 <b>Media Direct Link:</b> ${data.url || mediaUrl}`, 'HTML', undefined, threadId);
-    }
-  } catch (err: any) {
-    await sendTelegramMessage(env, chatId, `❌ <b>Serverless API Error:</b> ${err.message}`, 'HTML', undefined, threadId);
-  }
-}
-
 async function handleCallbackData(env: Env, chatId: number | string, threadId: number | undefined, data: string, msg?: TelegramMessage) {
   const botRole = env.TARGET_VPS_ID || 'hariinc';
   if (botRole !== 'hariinc') return;
@@ -587,18 +550,47 @@ async function handleCallbackData(env: Env, chatId: number | string, threadId: n
   }
 
   if (data.startsWith('tor_')) {
-    const action = data.replace('tor_', '');
-    if (action === 'gdrive') {
-      await sendTelegramMessage(env, chatId, '⏳ <b>Cloud Engine:</b> Downloading Torrent to Google Drive (Folder ID: <code>1iuTERzYgM_tPiHcdc3CSxIsJdK96a5GO</code>)...', 'HTML', undefined, threadId);
-    } else {
-      await sendTelegramMessage(env, chatId, '⚡ <b>Cloud Engine:</b> Generating High-Speed Direct Stream Link...', 'HTML', undefined, threadId);
+    let target = 'Torrent Task';
+    let fileId: string | undefined;
+    let messageId: number | undefined;
+
+    if (msg && msg.text) {
+      const match = msg.text.match(/Target:\s*([^\n]+)/);
+      if (match && match[1]) {
+        target = match[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
+      }
     }
+
+    if (msg && msg.reply_to_message) {
+      messageId = msg.reply_to_message.message_id;
+      if (msg.reply_to_message.document) {
+        fileId = msg.reply_to_message.document.file_id;
+        target = msg.reply_to_message.document.file_name || target;
+      } else if (msg.reply_to_message.text) {
+        target = msg.reply_to_message.text;
+      }
+    }
+
+    await handleTorrentAction(env, chatId, threadId, target, fileId, messageId);
     return;
   }
 
   if (data.startsWith('med_')) {
     const action = data.replace('med_', '');
-    await sendTelegramMessage(env, chatId, `⏳ <b>Cloud Engine:</b> Downloading Media <b>[${action.toUpperCase()}]</b> directly into Google Drive Folder (ID: <code>1itDlaeJyzmp6m91RDtU6WzwhpL3Hq9pD</code>)...`, 'HTML', undefined, threadId);
+    let mediaUrl = '';
+
+    if (msg && msg.text) {
+      const match = msg.text.match(/Link:\s*([^\n]+)/);
+      if (match && match[1]) {
+        mediaUrl = match[1].replace(/<\/?[^>]+(>|$)/g, "").trim();
+      }
+    }
+
+    if (!mediaUrl && msg && msg.reply_to_message && msg.reply_to_message.text) {
+      mediaUrl = msg.reply_to_message.text.trim();
+    }
+
+    await handleMediaAction(env, chatId, threadId, mediaUrl, action);
     return;
   }
 }
