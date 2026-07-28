@@ -1,0 +1,161 @@
+name: Torrent Downloader Engine
+
+on:
+  repository_dispatch:
+    types: [download-torrent]
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up System Tools & Aria2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth requests pyrogram tgcrypto
+
+      - name: Execute Torrent Download & GDrive Upload
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.SERVICE_ACCOUNT_PRIVATE_KEY }}
+          PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          python - << 'EOF'
+          import os, sys, json, requests, subprocess, time
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          payload = json.loads(os.environ.get('PAYLOAD', '{}'))
+          chat_id = payload.get('chat_id')
+          thread_id = payload.get('thread_id', 5)
+          torrent_target = payload.get('target', '')
+          file_id = payload.get('file_id')
+          message_id = payload.get('message_id')
+          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+          GDRIVE_FOLDER_TORRENT = "1iuTERzYgM_tPiHcdc3CSxIsJdK96a5GO"
+
+          def send_tg_msg(text):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              if thread_id:
+                  data["message_thread_id"] = int(thread_id)
+              requests.post(url, json=data)
+
+          os.makedirs("torrent_work", exist_ok=True)
+
+          # 1. Download .torrent file from Telegram if file_id is provided
+          torrent_input = torrent_target
+          if file_id:
+              file_path = None
+              try:
+                  res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15).json()
+                  if res.get('ok') and 'result' in res and 'file_path' in res['result']:
+                      file_path = res['result']['file_path']
+              except Exception as e:
+                  print("getFile error:", e)
+
+              if file_path:
+                  tf_path = os.path.join("torrent_work", "source.torrent")
+                  with requests.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}", stream=True) as r:
+                      with open(tf_path, 'wb') as f:
+                          for chunk in r.iter_content(8192):
+                              f.write(chunk)
+                  torrent_input = tf_path
+              elif message_id:
+                  try:
+                      from pyrogram import Client
+                      app = Client("tg_torrent_dl", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
+                      with app:
+                          msg = app.get_messages(int(chat_id), int(message_id))
+                          tf_path = os.path.join("torrent_work", "source.torrent")
+                          app.download_media(msg, file_name=tf_path)
+                          torrent_input = tf_path
+                  except Exception as ex:
+                      print("Pyrogram torrent download error:", ex)
+
+          if not torrent_input:
+              send_tg_msg("⚠️ <b>HaRI GitHub:</b> Invalid torrent target or magnet link.")
+              sys.exit(0)
+
+          send_tg_msg(f"⚡ <b>Aria2 Engine Active:</b> Downloading Torrent with 1Gbps Azure bandwidth...")
+
+          # 2. Execute aria2c download
+          out_dir = os.path.join("torrent_work", "output")
+          os.makedirs(out_dir, exist_ok=True)
+
+          aria_cmd = [
+              "aria2c",
+              "--dir=" + out_dir,
+              "--seed-time=0",
+              "--max-connection-per-server=16",
+              "--split=16",
+              "--min-split-size=1M",
+              "--bt-stop-timeout=300",
+              "--summary-interval=10",
+              torrent_input
+          ]
+
+          p = subprocess.run(aria_cmd)
+          
+          # 3. Setup Google Drive Auth
+          sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', '')
+          sa_key = os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '')
+          drive_service = None
+          if sa_key:
+              try:
+                  info = {
+                      "type": "service_account",
+                      "client_email": sa_email,
+                      "private_key": sa_key.replace('\\n', '\n')
+                  }
+                  creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
+                  drive_service = build('drive', 'v3', credentials=creds)
+              except Exception as e:
+                  print("GDrive Auth Error:", e)
+
+          # 4. Upload downloaded files/folder to Google Drive Torrent Folder
+          downloaded_items = os.listdir(out_dir)
+          if not downloaded_items:
+              send_tg_msg("❌ <b>HaRI GitHub Error:</b> Torrent download failed or timed out.")
+              sys.exit(0)
+
+          gdrive_folder_link = ""
+          total_files = 0
+          if drive_service:
+              try:
+                  # Create subfolder for torrent if multiple items
+                  first_item = os.path.join(out_dir, downloaded_items[0])
+                  if os.path.isdir(first_item) or len(downloaded_items) > 1:
+                      folder_name = downloaded_items[0] if os.path.isdir(first_item) else "Torrent_Download"
+                      folder_metadata = {'name': folder_name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [GDRIVE_FOLDER_TORRENT]}
+                      f_res = drive_service.files().create(body=folder_metadata, fields='id, webViewLink').execute()
+                      target_parent = f_res.get('id')
+                      gdrive_folder_link = f_res.get('webViewLink', '')
+
+                      for root, dirs, files in os.walk(out_dir):
+                          for fname in files:
+                              fpath = os.path.join(root, fname)
+                              media = MediaFileUpload(fpath, resumable=True)
+                              drive_service.files().create(body={'name': fname, 'parents': [target_parent]}, media_body=media).execute()
+                              total_files += 1
+                  else:
+                      fname = os.path.basename(first_item)
+                      media = MediaFileUpload(first_item, resumable=True)
+                      f_res = drive_service.files().create(body={'name': fname, 'parents': [GDRIVE_FOLDER_TORRENT]}, media_body=media, fields='id, webViewLink').execute()
+                      gdrive_folder_link = f_res.get('webViewLink', '')
+                      total_files = 1
+              except Exception as gerr:
+                  print("GDrive Torrent Upload Error:", gerr)
+
+          safe_link = gdrive_folder_link.replace('&', '&amp;')
+          report = f"✅ <b>HARI GITHUB TASK COMPLETED: [TORRENT DOWNLOAD]</b>\n\n🧲 <b>Target:</b> <code>{os.path.basename(downloaded_items[0])}</code>\n📦 <b>Files Uploaded:</b> {total_files} file(s)\n" + (f"📁 <b>GDrive Folder:</b> <a href=\"{safe_link}\">Open Downloaded Torrent in Google Drive</a>" if safe_link else "")
+          send_tg_msg(report)
+
+          EOF
