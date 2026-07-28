@@ -16,7 +16,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libreoffice poppler-utils pandoc qpdf
           python -m pip install --upgrade pip
-          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto
+          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto gdown
 
       - name: Execute Document Conversion
         env:
@@ -39,6 +39,11 @@ jobs:
           file_name = payload.get('file_name', 'document.pdf')
           action = payload.get('action', 'docs')
           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          
+          file_url = None
+          if file_name.startswith('http://') or file_name.startswith('https://'):
+              file_url = file_name
+              file_name = "downloaded_document.pdf"
 
           GDRIVE_FOLDER_DOCUMENTS = "1hNATiBUyNByjFXD56S8Q4UwMo32RQ9VW"
 
@@ -65,51 +70,71 @@ jobs:
           os.makedirs("work", exist_ok=True)
           input_file = os.path.join("work", file_name)
 
-          # 1. Download original file from Telegram
-          # Try standard Bot API getFile (< 20MB)
-          file_path = None
-          if file_id:
+          # 1. Download original file from Telegram or URL
+          if file_url:
+              print(f"Downloading Web URL: {file_url}")
               try:
-                  file_info_res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15)
-                  file_info = file_info_res.json()
-                  if file_info.get('ok') and 'result' in file_info and 'file_path' in file_info['result']:
-                      file_path = file_info['result']['file_path']
+                  if "drive.google.com" in file_url:
+                      import gdown
+                      gdown.download(file_url, input_file, quiet=False, fuzzy=True)
                   else:
-                      print(f"Standard getFile notice: {file_info.get('description')}")
-              except Exception as ex:
-                  print(f"getFile exception: {ex}")
-
-          if file_path:
-              # Small file download (< 20MB)
-              download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
-              for attempt in range(1, 4):
-                  try:
-                      with requests.get(download_url, stream=True, timeout=30) as r:
+                      with requests.get(file_url, stream=True, timeout=30) as r:
                           r.raise_for_status()
                           with open(input_file, 'wb') as f:
                               for chunk in r.iter_content(chunk_size=8192):
                                   f.write(chunk)
-                      if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
-                          break
-                  except Exception as ex:
-                      print(f"Download attempt {attempt} failed: {ex}")
-                  time.sleep(2 * attempt)
+              except Exception as e:
+                  print("URL Download Exception:", e)
           else:
-              # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
-              print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
-              try:
-                  from pyrogram import Client
-                  app = Client("large_file_engine", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
-                  with app:
-                      target_msg_id = int(message_id) if message_id else None
-                      if not target_msg_id and thread_id:
-                          target_msg_id = int(thread_id)
+              # Try standard Bot API getFile (< 20MB)
+              file_path = None
+              if file_id:
+                  try:
+                      file_info_res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15)
+                      file_info = file_info_res.json()
+                      if file_info.get('ok') and 'result' in file_info and 'file_path' in file_info['result']:
+                          file_path = file_info['result']['file_path']
+                      else:
+                          print(f"Standard getFile notice: {file_info.get('description')}")
+                  except Exception as ex:
+                      print(f"getFile exception: {ex}")
 
-                      if target_msg_id:
-                          msg = app.get_messages(int(chat_id), target_msg_id)
-                          app.download_media(msg, file_name=input_file)
-              except Exception as pex:
-                  print("Pyrogram Download Exception:", pex)
+              if file_path:
+                  # Small file download (< 20MB)
+                  download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+                  for attempt in range(1, 4):
+                      try:
+                          with requests.get(download_url, stream=True, timeout=30) as r:
+                              r.raise_for_status()
+                              with open(input_file, 'wb') as f:
+                                  for chunk in r.iter_content(chunk_size=8192):
+                                      f.write(chunk)
+                          if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
+                              break
+                      except Exception as ex:
+                          print(f"Download attempt {attempt} failed: {ex}")
+                      time.sleep(2 * attempt)
+              else:
+                  # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
+                  print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
+                  try:
+                      import asyncio
+                      from pyrogram import Client
+                      
+                      async def download_large():
+                          app = Client("large_file_engine", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
+                          async with app:
+                              target_msg_id = int(message_id) if message_id else None
+                              if not target_msg_id and thread_id:
+                                  target_msg_id = int(thread_id)
+
+                              if target_msg_id:
+                                  msg = await app.get_messages(int(chat_id), target_msg_id)
+                                  await app.download_media(msg, file_name=input_file)
+                                  
+                      asyncio.run(download_large())
+                  except Exception as pex:
+                      print("Pyrogram Download Exception:", pex)
 
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
               send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
