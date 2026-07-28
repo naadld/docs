@@ -4,11 +4,16 @@ node_modules/
 dist/
 build/
 
-# Private Credentials & Local Notes
+# Private Credentials, Scripts & Notes
 Notes
 service-account.json
 .env
 *.pem
 *.key
 *.token
-EOF
+*.py
+*.sh
+*.json
+!package.json
+!tsconfig.json
+!wrangler.toml
