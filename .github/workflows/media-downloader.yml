@@ -1,0 +1,148 @@
+name: Media Downloader Engine
+
+on:
+  repository_dispatch:
+    types: [download-media]
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up System Tools & yt-dlp & ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install --upgrade yt-dlp google-api-python-client google-auth requests pyrogram tgcrypto
+
+      - name: Execute Media Download & GDrive Upload
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.SERVICE_ACCOUNT_PRIVATE_KEY }}
+          PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          python - << 'EOF'
+          import os, sys, json, requests, subprocess, glob
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          payload = json.loads(os.environ.get('PAYLOAD', '{}'))
+          chat_id = payload.get('chat_id')
+          thread_id = payload.get('thread_id', 6)
+          media_url = payload.get('url', '')
+          action = payload.get('action', 'video')
+          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+          GDRIVE_FOLDER_MEDIA = "1itDlaeJyzmp6m91RDtU6WzwhpL3Hq9pD"
+
+          def send_tg_msg(text):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              if thread_id:
+                  data["message_thread_id"] = int(thread_id)
+              requests.post(url, json=data)
+
+          def send_tg_doc(doc_path, caption):
+              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              data = {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}
+              if thread_id:
+                  data["message_thread_id"] = int(thread_id)
+              with open(doc_path, 'rb') as f:
+                  files = {"document": (os.path.basename(doc_path), f)}
+                  res = requests.post(url, data=data, files=files)
+                  return res.json().get('ok', False)
+
+          if not media_url:
+              send_tg_msg("⚠️ <b>HaRI GitHub:</b> Invalid media link.")
+              sys.exit(0)
+
+          send_tg_msg(f"⚡ <b>yt-dlp Engine Active:</b> Downloading media from <code>{media_url}</code>...")
+
+          out_dir = os.path.join("media_work", "output")
+          os.makedirs(out_dir, exist_ok=True)
+          out_template = os.path.join(out_dir, "%(title)s.%(ext)s")
+
+          # 1. Build yt-dlp Command based on Action
+          cmd = ["yt-dlp", "--no-warnings", "--ignore-errors", "-o", out_template]
+
+          is_audio = 'mp3' in action
+          is_playlist = 'pl' in action
+
+          if not is_playlist:
+              cmd.append("--no-playlist")
+
+          if is_audio:
+              cmd.extend(["-x", "--audio-format", "mp3", "--audio-quality", "0"])
+          else:
+              cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best", "--merge-output-format", "mp4"])
+
+          cmd.append(media_url)
+
+          p = subprocess.run(cmd)
+
+          # 2. Setup Google Drive Credentials
+          sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', '')
+          sa_key = os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '')
+          drive_service = None
+          if sa_key:
+              try:
+                  info = {
+                      "type": "service_account",
+                      "client_email": sa_email,
+                      "private_key": sa_key.replace('\\n', '\n')
+                  }
+                  creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
+                  drive_service = build('drive', 'v3', credentials=creds)
+              except Exception as e:
+                  print("GDrive Auth Error:", e)
+
+          # 3. Upload downloaded media to Google Drive Media Folder
+          media_files = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
+          if not media_files:
+              send_tg_msg("❌ <b>HaRI GitHub Error:</b> Could not download media file. Please check link validity.")
+              sys.exit(0)
+
+          gdrive_link = ""
+          total_files = len(media_files)
+
+          if drive_service:
+              try:
+                  if total_files > 1:
+                      # Create subfolder for playlist
+                      folder_metadata = {'name': 'Media_Playlist_Download', 'mimeType': 'application/vnd.google-apps.folder', 'parents': [GDRIVE_FOLDER_MEDIA]}
+                      f_res = drive_service.files().create(body=folder_metadata, fields='id, webViewLink').execute()
+                      target_parent = f_res.get('id')
+                      gdrive_link = f_res.get('webViewLink', '')
+
+                      for mf in media_files:
+                          mtype = 'audio/mpeg' if mf.endswith('.mp3') else 'video/mp4'
+                          media = MediaFileUpload(mf, mimetype=mtype, resumable=True)
+                          drive_service.files().create(body={'name': os.path.basename(mf), 'parents': [target_parent]}, media_body=media).execute()
+                  else:
+                      first_file = media_files[0]
+                      fname = os.path.basename(first_file)
+                      mtype = 'audio/mpeg' if first_file.endswith('.mp3') else 'video/mp4'
+                      media = MediaFileUpload(first_file, mimetype=mtype, resumable=True)
+                      f_res = drive_service.files().create(body={'name': fname, 'parents': [GDRIVE_FOLDER_MEDIA]}, media_body=media, fields='id, webViewLink').execute()
+                      gdrive_link = f_res.get('webViewLink', '')
+              except Exception as gerr:
+                  print("GDrive Media Upload Error:", gerr)
+
+          safe_link = gdrive_link.replace('&', '&amp;')
+          first_name = os.path.basename(media_files[0])
+          caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [MEDIA DOWNLOADER]</b>\n\n📄 <b>Downloaded:</b> <code>{first_name}</code>\n📦 <b>Files:</b> {total_files} file(s)\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Media File in Google Drive</a>" if safe_link else "")
+
+          # Send smaller file (< 50MB) directly to Telegram as attachment as well!
+          first_size = os.path.getsize(media_files[0])
+          if first_size < 45 * 1024 * 1024:
+              if not send_tg_doc(media_files[0], caption):
+                  send_tg_msg(caption)
+          else:
+              send_tg_msg(caption)
+
+          EOF
