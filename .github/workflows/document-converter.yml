@@ -70,7 +70,7 @@ jobs:
                   return res_json.get('ok', False)
 
           os.makedirs("work", exist_ok=True)
-          input_file = os.path.join("work", file_name)
+          input_file = os.path.abspath(os.path.join("work", file_name))
 
           # 1. Download original file from Telegram or URL
           if file_url:
@@ -117,29 +117,41 @@ jobs:
                           print(f"Download attempt {attempt} failed: {ex}")
                       time.sleep(2 * attempt)
               else:
-                  # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
-                  print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
+                  # Large file download (> 20MB) via Local Bot API Server
+                  print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Local Telegram Bot API Server...")
                   try:
-                      import asyncio
-                      from pyrogram import Client
+                      # Start the local bot API server in docker
+                      api_id = os.environ.get('TELEGRAM_API_ID', '')
+                      api_hash = os.environ.get('TELEGRAM_API_HASH', '')
+                      if not api_id or not api_hash:
+                          print("Missing TELEGRAM_API_ID or TELEGRAM_API_HASH!")
+                          sys.exit(1)
                       
-                      async def download_large():
-                          # Use API ID/HASH from env if available, else fallback
-                          app_api_id = int(os.environ.get('TELEGRAM_API_ID', '611335'))
-                          app_api_hash = os.environ.get('TELEGRAM_API_HASH', 'd524b507821326ef78b2352d2fd01829')
-                          app = Client("large_file_engine", api_id=app_api_id, api_hash=app_api_hash, bot_token=bot_token, in_memory=True)
-                          async with app:
-                              target_msg_id = int(message_id) if message_id else None
-                              if not target_msg_id and thread_id:
-                                  target_msg_id = int(thread_id)
-
-                              if target_msg_id:
-                                  msg = await app.get_messages(int(chat_id), target_msg_id)
-                                  await app.download_media(msg, file_name=input_file)
-                                  
-                      asyncio.run(download_large())
-                  except Exception as pex:
-                      print("Pyrogram Download Exception:", pex)
+                      # Absolute paths for docker mount
+                      work_dir = os.path.abspath("work")
+                      docker_cmd = f"docker run -d -p 8081:8081 -v {work_dir}:/var/lib/telegram-bot-api --name tgbotapi -e TELEGRAM_API_ID={api_id} -e TELEGRAM_API_HASH={api_hash} aiogram/telegram-bot-api:latest --local -d /var/lib/telegram-bot-api"
+                      print("Starting Local Bot API...")
+                      subprocess.run(docker_cmd, shell=True, check=True)
+                      time.sleep(5) # Wait for server to boot
+                      
+                      print("Requesting getFile from Local Bot API...")
+                      res = requests.get(f"http://localhost:8081/bot{bot_token}/getFile?file_id={file_id}", timeout=30).json()
+                      if res.get('ok'):
+                          local_file_path = res['result']['file_path']
+                          print("Local Bot API returned path:", local_file_path)
+                          # local_file_path is absolute inside docker (e.g. /var/lib/telegram-bot-api/...)
+                          # Translate to GitHub Runner path
+                          host_path = local_file_path.replace('/var/lib/telegram-bot-api', work_dir)
+                          import shutil
+                          shutil.copy(host_path, input_file)
+                          print(f"Copied large file to {input_file}")
+                      else:
+                          print("Local Bot API getFile failed:", res)
+                          
+                      subprocess.run("docker rm -f tgbotapi", shell=True)
+                  except Exception as ex:
+                      print("Local Bot API Download Exception:", ex)
+                      subprocess.run("docker rm -f tgbotapi", shell=True)
 
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
               send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
