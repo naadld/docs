@@ -1,0 +1,265 @@
+name: Document Converter Engine
+
+on:
+  repository_dispatch:
+    types: [convert-document]
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python & System Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreoffice poppler-utils pandoc qpdf
+          python -m pip install --upgrade pip
+          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto
+
+      - name: Execute Document Conversion
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
+          SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.SERVICE_ACCOUNT_PRIVATE_KEY }}
+          PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          python - << 'EOF'
+          import os, sys, json, requests, subprocess, time
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          payload = json.loads(os.environ.get('PAYLOAD', '{}'))
+          chat_id = payload.get('chat_id')
+          thread_id = payload.get('thread_id')
+          file_id = payload.get('file_id')
+          message_id = payload.get('message_id')
+          file_name = payload.get('file_name', 'document.pdf')
+          action = payload.get('action', 'docs')
+          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+          GDRIVE_FOLDER_DOCUMENTS = "1hNATiBUyNByjFXD56S8Q4UwMo32RQ9VW"
+
+          def send_tg_msg(text):
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              if thread_id:
+                  data["message_thread_id"] = int(thread_id)
+              r = requests.post(url, json=data)
+              print("sendMessage response:", r.json())
+
+          def send_tg_doc(doc_path, caption):
+              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              data = {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}
+              if thread_id:
+                  data["message_thread_id"] = int(thread_id)
+              with open(doc_path, 'rb') as f:
+                  files = {"document": (os.path.basename(doc_path), f)}
+                  res = requests.post(url, data=data, files=files)
+                  res_json = res.json()
+                  print("sendDocument response:", res_json)
+                  return res_json.get('ok', False)
+
+          os.makedirs("work", exist_ok=True)
+          input_file = os.path.join("work", file_name)
+
+          # 1. Download original file from Telegram
+          # Try standard Bot API getFile (< 20MB)
+          file_path = None
+          if file_id:
+              try:
+                  file_info_res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15)
+                  file_info = file_info_res.json()
+                  if file_info.get('ok') and 'result' in file_info and 'file_path' in file_info['result']:
+                      file_path = file_info['result']['file_path']
+                  else:
+                      print(f"Standard getFile notice: {file_info.get('description')}")
+              except Exception as ex:
+                  print(f"getFile exception: {ex}")
+
+          if file_path:
+              # Small file download (< 20MB)
+              download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+              for attempt in range(1, 4):
+                  try:
+                      with requests.get(download_url, stream=True, timeout=30) as r:
+                          r.raise_for_status()
+                          with open(input_file, 'wb') as f:
+                              for chunk in r.iter_content(chunk_size=8192):
+                                  f.write(chunk)
+                      if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
+                          break
+                  except Exception as ex:
+                      print(f"Download attempt {attempt} failed: {ex}")
+                  time.sleep(2 * attempt)
+          else:
+              # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
+              print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
+              try:
+                  from pyrogram import Client
+                  app = Client("large_file_engine", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
+                  with app:
+                      target_msg_id = int(message_id) if message_id else None
+                      if not target_msg_id and thread_id:
+                          target_msg_id = int(thread_id)
+
+                      if target_msg_id:
+                          msg = app.get_messages(int(chat_id), target_msg_id)
+                          app.download_media(msg, file_name=input_file)
+              except Exception as pex:
+                  print("Pyrogram Download Exception:", pex)
+
+          if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
+              send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
+              sys.exit(0)
+
+          base_name = os.path.splitext(file_name)[0]
+
+          # Setup Google Drive Credentials securely
+          sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', 'ihoanghothihuong113@ihoanghothihuong113.iam.gserviceaccount.com')
+          sa_key = os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '')
+          
+          drive_service = None
+          if sa_key:
+              try:
+                  info = {
+                      "type": "service_account",
+                      "client_email": sa_email,
+                      "private_key": sa_key.replace('\\n', '\n')
+                  }
+                  creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
+                  drive_service = build('drive', 'v3', credentials=creds)
+              except Exception as e:
+                  print("GDrive Auth Error:", e)
+
+          # 2. Execute Action Mapping
+          if action == 'docs':
+              output_file = os.path.join("work", f"{base_name}.docx")
+              if file_name.lower().endswith('.pdf'):
+                  try:
+                      from pdf2docx import Converter
+                      cv = Converter(input_file)
+                      cv.convert(output_file, start=0, end=None)
+                      cv.close()
+                  except Exception as e:
+                      subprocess.run(["libreoffice", "--headless", "--convert-to", "docx", input_file, "--outdir", "work"])
+              else:
+                  subprocess.run(["libreoffice", "--headless", "--convert-to", "docx", input_file, "--outdir", "work"])
+
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                  res = drive_service.files().create(body={'name': f"{base_name}.docx", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT PDF TO DOCS]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.docx</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
+                  send_tg_msg(caption)
+
+          elif action == 'png':
+              png_dir = os.path.join("work", f"{base_name}_PNG_Pages")
+              os.makedirs(png_dir, exist_ok=True)
+              subprocess.run(["pdftoppm", "-png", "-r", "150", input_file, os.path.join(png_dir, "page")])
+
+              png_files = sorted([os.path.join(png_dir, f) for f in os.listdir(png_dir) if f.endswith('.png')])
+              subfolder_link = ""
+              if drive_service:
+                  try:
+                      folder_metadata = {'name': f"{base_name}_PNG_Pages", 'mimeType': 'application/vnd.google-apps.folder', 'parents': [GDRIVE_FOLDER_DOCUMENTS]}
+                      folder_res = drive_service.files().create(body=folder_metadata, fields='id, webViewLink').execute()
+                      subfolder_id = folder_res.get('id')
+                      subfolder_link = folder_res.get('webViewLink', '')
+
+                      for pf in png_files:
+                          media = MediaFileUpload(pf, mimetype='image/png')
+                          drive_service.files().create(body={'name': os.path.basename(pf), 'parents': [subfolder_id]}, media_body=media, fields='id').execute()
+                  except Exception as e:
+                      print("GDrive PNG Upload Error:", e)
+
+              safe_link = subfolder_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO PNG IMAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Pages Generated:</b> {len(png_files)} pages\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open PNG Pages Folder</a>" if safe_link else "")
+              if png_files:
+                  send_tg_doc(png_files[0], caption)
+              else:
+                  send_tg_msg(caption)
+
+          elif action == 'epub':
+              output_file = os.path.join("work", f"{base_name}.epub")
+              subprocess.run(["pandoc", input_file, "-o", output_file])
+              if not os.path.exists(output_file):
+                  subprocess.run(["libreoffice", "--headless", "--convert-to", "epub", input_file, "--outdir", "work"])
+
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/epub+zip')
+                  res = drive_service.files().create(body={'name': f"{base_name}.epub", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO EPUB]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.epub</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
+                  send_tg_msg(caption)
+
+          elif action == 'unlock':
+              output_file = os.path.join("work", f"{base_name}_unlocked.pdf")
+              subprocess.run(["qpdf", "--decrypt", input_file, output_file])
+              if not os.path.exists(output_file):
+                  output_file = input_file
+
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/pdf')
+                  res = drive_service.files().create(body={'name': f"{base_name}_unlocked.pdf", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [UNLOCK PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}_unlocked.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
+                  send_tg_msg(caption)
+
+          elif action == 'split':
+              split_dir = os.path.join("work", f"{base_name}_Split_Pages")
+              os.makedirs(split_dir, exist_ok=True)
+              subprocess.run(["pdfseparate", input_file, os.path.join(split_dir, "page_%d.pdf")])
+
+              split_files = sorted([os.path.join(split_dir, f) for f in os.listdir(split_dir) if f.endswith('.pdf')])
+              subfolder_link = ""
+              if drive_service:
+                  try:
+                      folder_metadata = {'name': f"{base_name}_Split_Pages", 'mimeType': 'application/vnd.google-apps.folder', 'parents': [GDRIVE_FOLDER_DOCUMENTS]}
+                      folder_res = drive_service.files().create(body=folder_metadata, fields='id, webViewLink').execute()
+                      subfolder_id = folder_res.get('id')
+                      subfolder_link = folder_res.get('webViewLink', '')
+
+                      for sf in split_files:
+                          media = MediaFileUpload(sf, mimetype='application/pdf')
+                          drive_service.files().create(body={'name': os.path.basename(sf), 'parents': [subfolder_id]}, media_body=media, fields='id').execute()
+                  except Exception as e:
+                      print("GDrive Split Upload Error:", e)
+
+              safe_link = subfolder_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [SPLIT PDF PAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Split Pages:</b> {len(split_files)} files\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Split Pages Folder</a>" if safe_link else "")
+              if split_files:
+                  send_tg_doc(split_files[0], caption)
+              else:
+                  send_tg_msg(caption)
+
+          else: # default action: 'pdf'
+              output_file = os.path.join("work", f"{base_name}.pdf")
+              subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", input_file, "--outdir", "work"])
+              
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/pdf')
+                  res = drive_service.files().create(body={'name': f"{base_name}.pdf", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
+                  send_tg_msg(caption)
+
+          EOF

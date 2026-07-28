@@ -1,0 +1,14 @@
+# Dependencies & Build
+node_modules/
+.wrangler/
+dist/
+build/
+
+# Private Credentials & Local Notes
+Notes
+service-account.json
+.env
+*.pem
+*.key
+*.token
+EOF
