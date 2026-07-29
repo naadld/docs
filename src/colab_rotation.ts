@@ -1,7 +1,8 @@
 /**
- * 5 Colab Profiles Round-Robin Load Balancer
+ * Colab Profiles Round-Robin Load Balancer
+ * Currently configured for 2 profiles testing (Profile #1 & Profile #2)
  */
 export function getNextColabProfileIndex(): number {
-  // Use timestamp milliseconds to pick round-robin profile index 1, 2, 3, 4, or 5 evenly
-  return (Math.floor(Date.now() / 1000) % 5) + 1;
+  // Rotate between Profile 1 and Profile 2 for initial testing stage
+  return (Math.floor(Date.now() / 1000) % 2) + 1;
 }

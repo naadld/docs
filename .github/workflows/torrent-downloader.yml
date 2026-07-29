@@ -83,7 +83,7 @@ jobs:
                       print("Pyrogram torrent download error:", ex)
 
           if not torrent_input:
-              send_tg_msg(f"⚠️ <b>HaRI Colab CLI [Profile #{profile_index}]:</b> Invalid torrent target or magnet link.")
+              send_tg_msg(f"⚠️ <b>HaRi Colab CLI [Profile #{profile_index}]:</b> Invalid torrent target or magnet link.")
               sys.exit(0)
 
           send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Downloading Torrent with 1Gbps Azure bandwidth...")
@@ -127,7 +127,7 @@ jobs:
           # 4. Upload downloaded files/folder to Google Drive Torrent Folder
           downloaded_items = os.listdir(out_dir)
           if not downloaded_items:
-              send_tg_msg(f"❌ <b>HaRI Colab Error [Profile #{profile_index}]:</b> Torrent download failed or timed out.")
+              send_tg_msg(f"❌ <b>HaRi Colab Error [Profile #{profile_index}]:</b> Torrent download failed or timed out.")
               sys.exit(0)
 
           gdrive_folder_link = ""

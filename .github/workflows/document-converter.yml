@@ -113,7 +113,7 @@ jobs:
                   print("Pyrogram Download Exception:", pex)
 
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
-              send_tg_msg("⚠️ <b>HaRI Colab CLI:</b> Cannot download document file payload. Please resend document.")
+              send_tg_msg("⚠️ <b>HaRi Colab CLI:</b> Cannot download document file payload. Please resend document.")
               sys.exit(0)
 
           base_name = os.path.splitext(file_name)[0]

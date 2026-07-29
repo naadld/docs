@@ -29,7 +29,7 @@ export async function handleMediaAction(
   await sendTelegramMessage(
     env,
     chatId,
-    `🚀 <b>HaRI Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(mediaUrl.substring(0, 80))}</code>...`,
+    `🚀 <b>HaRi Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(mediaUrl.substring(0, 80))}</code>...`,
     'HTML',
     undefined,
     threadId

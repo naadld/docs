@@ -26,7 +26,7 @@ export async function handleTorrentAction(
   await sendTelegramMessage(
     env,
     chatId,
-    `🚀 <b>HaRI Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[TORRENT DOWNLOAD & GDRIVE UPLOAD]</b> for <code>${escapeHtml(target.substring(0, 80))}</code>...`,
+    `🚀 <b>HaRi Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[TORRENT DOWNLOAD & GDRIVE UPLOAD]</b> for <code>${escapeHtml(target.substring(0, 80))}</code>...`,
     'HTML',
     undefined,
     threadId

@@ -36,7 +36,7 @@ export async function handleOfficeAction(
   await sendTelegramMessage(
     env,
     chatId,
-    `🚀 <b>HaRI Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(fileName)}</code>...`,
+    `🚀 <b>HaRi Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(fileName)}</code>...`,
     'HTML',
     undefined,
     threadId

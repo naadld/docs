@@ -60,7 +60,7 @@ jobs:
                   return res.json().get('ok', False)
 
           if not media_url:
-              send_tg_msg(f"⚠️ <b>HaRI Colab CLI [Profile #{profile_index}]:</b> Invalid media link.")
+              send_tg_msg(f"⚠️ <b>HaRi Colab CLI [Profile #{profile_index}]:</b> Invalid media link.")
               sys.exit(0)
 
           send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Downloading media from <code>{media_url}</code>...")
@@ -108,7 +108,7 @@ jobs:
           # 3. Upload downloaded media to Google Drive Media Folder
           media_files = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
           if not media_files:
-              send_tg_msg(f"❌ <b>HaRI Colab Error [Profile #{profile_index}]:</b> Could not download media file.")
+              send_tg_msg(f"❌ <b>HaRi Colab Error [Profile #{profile_index}]:</b> Could not download media file.")
               sys.exit(0)
 
           gdrive_link = ""
