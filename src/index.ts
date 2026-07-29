@@ -208,11 +208,12 @@ async function promptTorrentActions(env: Env, chatId: number | string, threadId:
   const doc = msg.document;
   const targetText = doc ? (doc.file_name || 'Torrent File') : (msg.text || 'Magnet Task');
 
+  const origMsgId = msg.message_id;
   const keyboard = {
     inline_keyboard: [
       [
-        { text: "📁 [Download Direct to GDrive]", callback_data: "tor_gdrive" },
-        { text: "⚡ [Direct Stream Link]", callback_data: "tor_stream" }
+        { text: "📁 [Download Direct to GDrive]", callback_data: `tor_gdrive:${origMsgId}` },
+        { text: "⚡ [Direct Stream Link]", callback_data: `tor_stream:${origMsgId}` }
       ]
     ]
   };
@@ -558,9 +559,14 @@ async function handleCallbackData(env: Env, chatId: number | string, threadId: n
   }
 
   if (data.startsWith('tor_')) {
+    const rawAction = data.replace('tor_', '');
+    const parts = rawAction.split(':');
+    const action = parts[0];
+    const explicitMsgId = parts[1] ? parseInt(parts[1], 10) : undefined;
+
     let target = 'Torrent Task';
     let fileId: string | undefined;
-    let messageId: number | undefined;
+    let messageId: number | undefined = explicitMsgId;
 
     if (msg && msg.text) {
       const match = msg.text.match(/Target:\s*([^\n]+)/);
@@ -570,7 +576,7 @@ async function handleCallbackData(env: Env, chatId: number | string, threadId: n
     }
 
     if (msg && msg.reply_to_message) {
-      messageId = msg.reply_to_message.message_id;
+      if (!messageId) messageId = msg.reply_to_message.message_id;
       if (msg.reply_to_message.document) {
         fileId = msg.reply_to_message.document.file_id;
         target = msg.reply_to_message.document.file_name || target;
