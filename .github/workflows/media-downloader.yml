@@ -39,21 +39,41 @@ jobs:
           media_url = payload.get('url', '')
           action = payload.get('action', 'video')
           profile_index = payload.get('profile_index', 1)
-          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
           print(f"🚀 Colab CLI Media Engine active using Gmail Profile #{profile_index}")
 
           GDRIVE_FOLDER_MEDIA = "1itDlaeJyzmp6m91RDtU6WzwhpL3Hq9pD"
 
+          status_msg_id = None
+
           def send_tg_msg(text):
-              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              global status_msg_id
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
               data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
               if thread_id:
                   data["message_thread_id"] = int(thread_id)
-              requests.post(url, json=data)
+              try:
+                  res = requests.post(url, json=data).json()
+                  if res.get("ok"):
+                      status_msg_id = res["result"]["message_id"]
+                      return status_msg_id
+              except Exception as ex:
+                  print("Telegram send error:", ex)
+              return None
+
+          def update_tg_msg(msg_id, text):
+              if not msg_id:
+                  return
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+              data = {"chat_id": chat_id, "message_id": msg_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              try:
+                  requests.post(url, json=data)
+              except Exception as ex:
+                  print("Telegram edit error:", ex)
 
           def send_tg_doc(doc_path, caption):
-              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
               data = {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}
               if thread_id:
                   data["message_thread_id"] = int(thread_id)
@@ -66,7 +86,7 @@ jobs:
               send_tg_msg(f"⚠️ <b>HaRi Colab CLI [Profile #{profile_index}]:</b> Invalid media link.")
               sys.exit(0)
 
-          send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Downloading media from <code>{media_url}</code>...")
+          status_id = send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Initializing Media Downloader...")
 
           out_dir = os.path.join("media_work", "output")
           os.makedirs(out_dir, exist_ok=True)
@@ -88,7 +108,32 @@ jobs:
 
           cmd.append(media_url)
 
-          p = subprocess.run(cmd)
+          def make_bar(pct):
+              filled = int(pct / 10)
+              return "█" * filled + "░" * (10 - filled)
+
+          import re, time
+          process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+          last_update_time = 0
+
+          for line in iter(process.stdout.readline, ''):
+              m = re.search(r'\[download\]\s+([\d\.]+)%\s+of\s+~?([\d\.]+\w+)(?:\s+at\s+([\d\.]+\w+/s))?(?:\s+ETA\s+([\d:]+))?', line)
+              if m:
+                  pct, total, speed, eta = m.groups()
+                  now = time.time()
+                  if now - last_update_time >= 3.5:
+                      last_update_time = now
+                      pct_float = float(pct)
+                      bar = make_bar(int(pct_float))
+                      progress_text = (
+                          f"🎬 <b>Colab Engine [Profile #{profile_index}]: Downloading Media...</b>\n\n"
+                          f"<code>[{bar}] {pct_float:.1f}%</code>\n"
+                          f"⚡ <b>Speed:</b> {speed or 'N/A'} | ⏱️ <b>ETA:</b> {eta or 'Calculating...'}\n"
+                          f"📦 <b>Size:</b> {total}"
+                      )
+                      update_tg_msg(status_id, progress_text)
+
+          process.wait()
 
           # 2. Setup Google Drive Credentials dynamically (Supports OAuth2 Authorized User Refresh Token or Service Account)
           profile_secret = os.environ.get(f'COLAB_PROFILE_{profile_index}', '').strip() or os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '').strip()

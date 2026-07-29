@@ -41,22 +41,42 @@ jobs:
           file_name = payload.get('file_name', 'document.pdf')
           action = payload.get('action', 'docs')
           profile_index = payload.get('profile_index', 1)
-          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
           print(f"🚀 Colab CLI Engine active using Gmail Profile #{profile_index}")
 
           GDRIVE_FOLDER_DOCUMENTS = "1hNATiBUyNByjFXD56S8Q4UwMo32RQ9VW"
 
+          status_msg_id = None
+
           def send_tg_msg(text):
-              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              global status_msg_id
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
               data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
               if thread_id:
                   data["message_thread_id"] = int(thread_id)
-              r = requests.post(url, json=data)
-              print("sendMessage response:", r.json())
+              try:
+                  r = requests.post(url, json=data)
+                  r_json = r.json()
+                  if r_json.get("ok"):
+                      status_msg_id = r_json["result"]["message_id"]
+                      return status_msg_id
+              except Exception as ex:
+                  print("Telegram send error:", ex)
+              return None
+
+          def update_tg_msg(msg_id, text):
+              if not msg_id:
+                  return
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+              data = {"chat_id": chat_id, "message_id": msg_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              try:
+                  requests.post(url, json=data)
+              except Exception as ex:
+                  print("Telegram edit error:", ex)
 
           def send_tg_doc(doc_path, caption):
-              url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
               data = {"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}
               if thread_id:
                   data["message_thread_id"] = int(thread_id)
