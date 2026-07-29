@@ -258,7 +258,7 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
     keyboard = {
       inline_keyboard: [
         [
-          { text: "🎬 [Video 1080p]", callback_data: "med_yt_video" },
+          { text: "🎬 [Best Video]", callback_data: "med_yt_video" },
           { text: "🎵 [Audio MP3]", callback_data: "med_yt_mp3" }
         ]
       ]
