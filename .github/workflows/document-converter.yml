@@ -14,8 +14,8 @@ jobs:
       - name: Fast System Dependencies Setup
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends poppler-utils qpdf pandoc
-          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto
+          sudo apt-get install -y --no-install-recommends poppler-utils qpdf pandoc ghostscript
+          pip install pdf2docx pdfplumber openpyxl pandas google-api-python-client google-auth requests pyrogram tgcrypto
 
       - name: Execute Document Conversion via Colab Engine
         env:
@@ -274,6 +274,75 @@ jobs:
               if split_files:
                   send_tg_doc(split_files[0], caption)
               else:
+                  send_tg_msg(caption)
+
+          elif action == 'excel':
+              output_file = os.path.join("work", f"{base_name}.xlsx")
+              try:
+                  import pdfplumber, pandas as pd
+                  rows = []
+                  with pdfplumber.open(input_file) as pdf:
+                      for page in pdf.pages:
+                          tables = page.extract_tables()
+                          for table in tables:
+                              for r in table:
+                                  if any(r):
+                                      rows.append(r)
+                  if rows:
+                      df = pd.DataFrame(rows)
+                      df.to_excel(output_file, index=False, header=False)
+                  else:
+                      text_rows = []
+                      with pdfplumber.open(input_file) as pdf:
+                          for page in pdf.pages:
+                              text = page.extract_text()
+                              if text:
+                                  for line in text.split('\n'):
+                                      if line.strip():
+                                          text_rows.append([line.strip()])
+                      df = pd.DataFrame(text_rows)
+                      df.to_excel(output_file, index=False, header=['Extracted Content'])
+              except Exception as ex:
+                  print("Excel conversion exception:", ex)
+
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                  res = drive_service.files().create(body={'name': f"{base_name}.xlsx", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [CONVERT TO EXCEL]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.xlsx</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Excel File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
+                  send_tg_msg(caption)
+
+          elif action == 'compress':
+              output_file = os.path.join("work", f"{base_name}_compressed.pdf")
+              try:
+                  gs_cmd = [
+                      "gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
+                      "-dPDFSETTINGS=/ebook", "-dNOPAUSE", "-dQUIET", "-dBATCH",
+                      f"-sOutputFile={output_file}", input_file
+                  ]
+                  subprocess.run(gs_cmd)
+              except Exception as ex:
+                  print("Ghostscript compress exception:", ex)
+
+              if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+                  output_file = input_file
+
+              orig_size = os.path.getsize(input_file) / 1024.0
+              comp_size = os.path.getsize(output_file) / 1024.0
+
+              drive_link = ""
+              if drive_service and os.path.exists(output_file):
+                  media = MediaFileUpload(output_file, mimetype='application/pdf')
+                  res = drive_service.files().create(body={'name': f"{base_name}_compressed.pdf", 'parents': [GDRIVE_FOLDER_DOCUMENTS]}, media_body=media, fields='id, webViewLink').execute()
+                  drive_link = res.get('webViewLink', '')
+
+              safe_link = drive_link.replace('&', '&amp;')
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [COMPRESS PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code> ({orig_size:.1f} KB)\n📦 <b>Compressed File:</b> <code>{base_name}_compressed.pdf</code> ({comp_size:.1f} KB)\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              if not send_tg_doc(output_file, caption):
                   send_tg_msg(caption)
 
           else: # default action: 'pdf'

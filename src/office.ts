@@ -30,6 +30,8 @@ export async function handleOfficeAction(
   else if (action === 'docs') actionTitle = 'CONVERT PDF TO DOCS';
   else if (action === 'png') actionTitle = 'CONVERT TO PNG IMAGES';
   else if (action === 'split') actionTitle = 'SPLIT PDF PAGES';
+  else if (action === 'excel') actionTitle = 'CONVERT TO EXCEL';
+  else if (action === 'compress') actionTitle = 'COMPRESS PDF FILE SIZE';
 
   const profileIndex = getNextColabProfileIndex();
 

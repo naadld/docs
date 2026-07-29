@@ -179,6 +179,10 @@ async function promptOfficeActions(env: Env, chatId: number | string, threadId: 
       [
         { text: "🖼️ [To PNG]", callback_data: `off_png:${origMsgId}` },
         { text: "✂️ [Split PDF]", callback_data: `off_split:${origMsgId}` }
+      ],
+      [
+        { text: "📊 [To EXCEL]", callback_data: `off_excel:${origMsgId}` },
+        { text: "🗜️ [Compress PDF]", callback_data: `off_compress:${origMsgId}` }
       ]
     ]
   };
