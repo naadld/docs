@@ -93,7 +93,13 @@ jobs:
           out_template = os.path.join(out_dir, "%(title)s.%(ext)s")
 
           # 1. Build yt-dlp Command based on Action
-          cmd = ["yt-dlp", "--no-warnings", "--ignore-errors", "-o", out_template]
+          cmd = [
+              "yt-dlp",
+              "--no-warnings",
+              "--ignore-errors",
+              "--extractor-args", "youtube:player_client=android,web",
+              "-o", out_template
+          ]
 
           is_audio = 'mp3' in action
           is_playlist = 'pl' in action
