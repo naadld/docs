@@ -99,6 +99,15 @@ jobs:
               try:
                   if profile_secret.startswith('{'):
                       info = json.loads(profile_secret)
+                      if isinstance(info.get('refresh_token'), dict):
+                          info['refresh_token'] = info['refresh_token'].get('refresh_token', '')
+                      elif isinstance(info.get('refresh_token'), str) and info['refresh_token'].startswith('{'):
+                          try:
+                              nested = json.loads(info['refresh_token'])
+                              info['refresh_token'] = nested.get('refresh_token', info['refresh_token'])
+                          except Exception:
+                              pass
+
                       if info.get('type') == 'authorized_user' or 'refresh_token' in info:
                           creds = Credentials.from_authorized_user_info(info, scopes=['https://www.googleapis.com/auth/drive'])
                       else:
