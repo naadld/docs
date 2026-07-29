@@ -163,22 +163,22 @@ async function promptOfficeActions(env: Env, chatId: number | string, threadId: 
   if (botRole !== 'hariinc') return;
 
   const doc = msg.document;
-  const text = msg.text || '';
-  const targetName = doc ? (doc.file_name || 'document.pdf') : text;
+  const targetName = doc ? (doc.file_name || 'Document') : 'Document';
+  const origMsgId = msg.message_id;
 
   const officeKeyboard = {
     inline_keyboard: [
       [
-        { text: "📄 [To PDF]", callback_data: `off_pdf` },
-        { text: "📚 [To EPUB]", callback_data: `off_epub` }
+        { text: "📄 [To PDF]", callback_data: `off_pdf:${origMsgId}` },
+        { text: "📚 [To EPUB]", callback_data: `off_epub:${origMsgId}` }
       ],
       [
-        { text: "🔓 [Unlock PDF]", callback_data: `off_unlock` },
-        { text: "📝 [To DOCS]", callback_data: `off_docs` }
+        { text: "🔓 [Unlock PDF]", callback_data: `off_unlock:${origMsgId}` },
+        { text: "📝 [To DOCS]", callback_data: `off_docs:${origMsgId}` }
       ],
       [
-        { text: "🖼️ [To PNG]", callback_data: `off_png` },
-        { text: "✂️ [Split PDF]", callback_data: `off_split` }
+        { text: "🖼️ [To PNG]", callback_data: `off_png:${origMsgId}` },
+        { text: "✂️ [Split PDF]", callback_data: `off_split:${origMsgId}` }
       ]
     ]
   };
@@ -523,10 +523,14 @@ async function handleCallbackData(env: Env, chatId: number | string, threadId: n
   if (botRole !== 'hariinc') return;
 
   if (data.startsWith('off_')) {
-    const action = data.replace('off_', '');
+    const rawAction = data.replace('off_', '');
+    const parts = rawAction.split(':');
+    const action = parts[0];
+    const explicitMsgId = parts[1] ? parseInt(parts[1], 10) : undefined;
+
     let fileName = 'document.pdf';
     let fileId: string | undefined;
-    let messageId: number | undefined;
+    let messageId: number | undefined = explicitMsgId;
 
     if (msg && msg.text) {
       const match = msg.text.match(/Target:\s*([^\n]+)/);
@@ -536,7 +540,7 @@ async function handleCallbackData(env: Env, chatId: number | string, threadId: n
     }
 
     if (msg && msg.reply_to_message) {
-      messageId = msg.reply_to_message.message_id;
+      if (!messageId) messageId = msg.reply_to_message.message_id;
       if (msg.reply_to_message.document) {
         fileId = msg.reply_to_message.document.file_id;
         if (!fileName || fileName === 'document.pdf') {

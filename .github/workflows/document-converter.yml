@@ -99,19 +99,30 @@ jobs:
                       print(f"Download attempt {attempt} failed: {ex}")
                   time.sleep(2 * attempt)
           else:
-              # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
-              print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
+              # Large file download (> 20MB up to 2GB) or fallback via Pyrogram MTProto Engine!
+              print("🚀 Bypassing limit using Pyrogram MTProto Engine...")
               try:
                   from pyrogram import Client
                   app = Client("large_file_engine", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
                   with app:
-                      target_msg_id = int(message_id) if message_id else None
-                      if not target_msg_id and thread_id:
-                          target_msg_id = int(thread_id)
+                      target_msg_id = int(message_id) if (message_id and str(message_id).isdigit()) else None
 
                       if target_msg_id:
-                          msg = app.get_messages(int(chat_id), target_msg_id)
-                          app.download_media(msg, file_name=input_file)
+                          try:
+                              msg = app.get_messages(int(chat_id), target_msg_id)
+                              if msg and msg.document:
+                                  app.download_media(msg, file_name=input_file)
+                          except Exception as m_ex:
+                              print("get_messages exception:", m_ex)
+
+                      if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
+                          print("🔍 Searching recent 15 messages in chat/topic for document...")
+                          for m in app.get_chat_history(int(chat_id), limit=15):
+                              if m.document:
+                                  print(f"✅ Found document in message #{m.id}: {m.document.file_name}")
+                                  app.download_media(m, file_name=input_file)
+                                  if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
+                                      break
               except Exception as pex:
                   print("Pyrogram Download Exception:", pex)
 
