@@ -29,6 +29,7 @@ jobs:
           python - << 'EOF'
           import os, sys, json, requests, subprocess, time
           from google.oauth2 import service_account
+          from google.oauth2.credentials import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
@@ -120,7 +121,7 @@ jobs:
 
           base_name = os.path.splitext(file_name)[0]
 
-          # Setup Google Drive Credentials dynamically from COLAB_PROFILE_1 or COLAB_PROFILE_2
+          # Setup Google Drive Credentials dynamically (Supports OAuth2 Authorized User Refresh Token or Service Account)
           profile_secret = os.environ.get(f'COLAB_PROFILE_{profile_index}', '').strip() or os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '').strip()
           sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', '')
           
@@ -129,6 +130,10 @@ jobs:
               try:
                   if profile_secret.startswith('{'):
                       info = json.loads(profile_secret)
+                      if info.get('type') == 'authorized_user' or 'refresh_token' in info:
+                          creds = Credentials.from_authorized_user_info(info, scopes=['https://www.googleapis.com/auth/drive'])
+                      else:
+                          creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
                   else:
                       info = {
                           "type": "service_account",
@@ -137,7 +142,7 @@ jobs:
                           "private_key": profile_secret.replace('\\n', '\n'),
                           "token_uri": "https://oauth2.googleapis.com/token"
                       }
-                  creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
+                      creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
                   drive_service = build('drive', 'v3', credentials=creds)
                   print(f"✅ Google Drive Auth Success for Profile #{profile_index}!")
               except Exception as e:
