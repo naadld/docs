@@ -115,8 +115,14 @@ jobs:
           import re, time
           process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
           last_update_time = 0
+          cur_item = None
+          tot_items = None
 
           for line in iter(process.stdout.readline, ''):
+              item_match = re.search(r'\[download\]\s+Downloading\s+(?:item|video)\s+(\d+)\s+of\s+(\d+)', line, re.IGNORECASE)
+              if item_match:
+                  cur_item, tot_items = item_match.groups()
+
               m = re.search(r'\[download\]\s+([\d\.]+)%\s+of\s+~?([\d\.]+\w+)(?:\s+at\s+([\d\.]+\w+/s))?(?:\s+ETA\s+([\d:]+))?', line)
               if m:
                   pct, total, speed, eta = m.groups()
@@ -125,8 +131,9 @@ jobs:
                       last_update_time = now
                       pct_float = float(pct)
                       bar = make_bar(int(pct_float))
+                      playlist_info = f"\n📌 <b>Playlist Item:</b> #{cur_item} / {tot_items}" if cur_item and tot_items else ""
                       progress_text = (
-                          f"🎬 <b>Colab Engine [Profile #{profile_index}]: Downloading Media...</b>\n\n"
+                          f"🎬 <b>Colab Engine [Profile #{profile_index}]: Downloading Media...</b>{playlist_info}\n\n"
                           f"<code>[{bar}] {pct_float:.1f}%</code>\n"
                           f"⚡ <b>Speed:</b> {speed or 'N/A'} | ⏱️ <b>ETA:</b> {eta or 'Calculating...'}\n"
                           f"📦 <b>Size:</b> {total}"
