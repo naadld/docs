@@ -120,12 +120,14 @@ jobs:
           sa_key = os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '')
           
           drive_service = None
-          if sa_key:
+          if sa_key and sa_email:
               try:
                   info = {
                       "type": "service_account",
+                      "project_id": "ihoanghothihuong113",
                       "client_email": sa_email,
-                      "private_key": sa_key.replace('\\n', '\n')
+                      "private_key": sa_key.replace('\\n', '\n'),
+                      "token_uri": "https://oauth2.googleapis.com/token"
                   }
                   creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
                   drive_service = build('drive', 'v3', credentials=creds)
