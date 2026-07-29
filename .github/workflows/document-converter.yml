@@ -11,20 +11,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python & System Tools
+      - name: Fast System Dependencies Setup
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libreoffice poppler-utils pandoc qpdf
-          python -m pip install --upgrade pip
-          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto gdown
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils qpdf pandoc
+          pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto
 
       - name: Execute Document Conversion
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
           SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.SERVICE_ACCOUNT_PRIVATE_KEY }}
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           PAYLOAD: ${{ toJson(github.event.client_payload) }}
         run: |
           python - << 'EOF'
@@ -41,11 +38,6 @@ jobs:
           file_name = payload.get('file_name', 'document.pdf')
           action = payload.get('action', 'docs')
           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-          
-          file_url = None
-          if file_name.startswith('http://') or file_name.startswith('https://'):
-              file_url = file_name
-              file_name = "downloaded_document.pdf"
 
           GDRIVE_FOLDER_DOCUMENTS = "1hNATiBUyNByjFXD56S8Q4UwMo32RQ9VW"
 
@@ -70,75 +62,53 @@ jobs:
                   return res_json.get('ok', False)
 
           os.makedirs("work", exist_ok=True)
-          input_file = os.path.abspath(os.path.join("work", file_name))
+          input_file = os.path.join("work", file_name)
 
-          # 1. Download original file from Telegram or URL
-          if file_url:
-              print(f"Downloading Web URL: {file_url}")
+          # 1. Download original file from Telegram
+          file_path = None
+          if file_id:
               try:
-                  if "drive.google.com" in file_url:
-                      import gdown
-                      gdown.download(file_url, input_file, quiet=False, fuzzy=True)
+                  file_info_res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15)
+                  file_info = file_info_res.json()
+                  if file_info.get('ok') and 'result' in file_info and 'file_path' in file_info['result']:
+                      file_path = file_info['result']['file_path']
                   else:
-                      with requests.get(file_url, stream=True, timeout=30) as r:
+                      print(f"Standard getFile notice: {file_info.get('description')}")
+              except Exception as ex:
+                  print(f"getFile exception: {ex}")
+
+          if file_path:
+              # Small file download (< 20MB)
+              download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+              for attempt in range(1, 4):
+                  try:
+                      with requests.get(download_url, stream=True, timeout=30) as r:
                           r.raise_for_status()
                           with open(input_file, 'wb') as f:
                               for chunk in r.iter_content(chunk_size=8192):
                                   f.write(chunk)
-              except Exception as e:
-                  print("URL Download Exception:", e)
-          else:
-              # Try standard Bot API getFile (< 20MB)
-              file_path = None
-              if file_id:
-                  try:
-                      file_info_res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15)
-                      file_info = file_info_res.json()
-                      if file_info.get('ok') and 'result' in file_info and 'file_path' in file_info['result']:
-                          file_path = file_info['result']['file_path']
-                      else:
-                          print(f"Standard getFile notice: {file_info.get('description')}")
+                      if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
+                          break
                   except Exception as ex:
-                      print(f"getFile exception: {ex}")
+                      print(f"Download attempt {attempt} failed: {ex}")
+                  time.sleep(2 * attempt)
+          else:
+              # Large file download (> 20MB up to 2GB) via Pyrogram MTProto Engine!
+              print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
+              try:
+                  from pyrogram import Client
+                  app = Client("large_file_engine", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
+                  with app:
+                      target_msg_id = int(message_id) if message_id else None
+                      if not target_msg_id and thread_id:
+                          target_msg_id = int(thread_id)
 
-              if file_path:
-                  # Small file download (< 20MB)
-                  download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
-                  for attempt in range(1, 4):
-                      try:
-                          with requests.get(download_url, stream=True, timeout=30) as r:
-                              r.raise_for_status()
-                              with open(input_file, 'wb') as f:
-                                  for chunk in r.iter_content(chunk_size=8192):
-                                      f.write(chunk)
-                          if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
-                              break
-                      except Exception as ex:
-                          print(f"Download attempt {attempt} failed: {ex}")
-                      time.sleep(2 * attempt)
-              else:
-                  # Large file download (> 20MB) via Pyrogram MTProto Engine
-                  print("🚀 Large File (> 20MB) detected! Bypassing 20MB limit using Pyrogram MTProto Engine...")
-                  try:
-                      import asyncio
-                      from pyrogram import Client
-                      
-                      async def download_large():
-                          api_id = os.environ.get('TELEGRAM_API_ID', '').strip()
-                          api_hash = os.environ.get('TELEGRAM_API_HASH', '').strip()
-                          if not api_id or not api_hash:
-                              raise ValueError("TELEGRAM_API_ID or TELEGRAM_API_HASH is missing in GitHub Secrets!")
-                          
-                          app = Client("large_file_engine", api_id=int(api_id), api_hash=api_hash, bot_token=bot_token, in_memory=True)
-                          async with app:
-                              await app.download_media(file_id, file_name=input_file)
-                                  
-                      asyncio.run(download_large())
-                  except Exception as pex:
-                      err_msg = str(pex)
-                      print("Pyrogram Download Exception:", err_msg)
-                      send_tg_msg(f"⚠️ <b>HaRI GitHub:</b> Large File Download Error!\n\n<code>{err_msg}</code>\n\nPlease check your TELEGRAM_API_ID and TELEGRAM_API_HASH in GitHub Secrets.")
-                      sys.exit(0)
+                      if target_msg_id:
+                          msg = app.get_messages(int(chat_id), target_msg_id)
+                          app.download_media(msg, file_name=input_file)
+              except Exception as pex:
+                  print("Pyrogram Download Exception:", pex)
+
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
               send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
               sys.exit(0)
@@ -146,7 +116,7 @@ jobs:
           base_name = os.path.splitext(file_name)[0]
 
           # Setup Google Drive Credentials securely
-          sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', 'ihoanghothihuong113@ihoanghothihuong113.iam.gserviceaccount.com')
+          sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', '')
           sa_key = os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '')
           
           drive_service = None
@@ -155,8 +125,7 @@ jobs:
                   info = {
                       "type": "service_account",
                       "client_email": sa_email,
-                      "private_key": sa_key.replace('\\n', '\n'),
-                      "token_uri": "https://oauth2.googleapis.com/token"
+                      "private_key": sa_key.replace('\\n', '\n')
                   }
                   creds = service_account.Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/drive'])
                   drive_service = build('drive', 'v3', credentials=creds)
@@ -166,16 +135,13 @@ jobs:
           # 2. Execute Action Mapping
           if action == 'docs':
               output_file = os.path.join("work", f"{base_name}.docx")
-              if file_name.lower().endswith('.pdf'):
-                  try:
-                      from pdf2docx import Converter
-                      cv = Converter(input_file)
-                      cv.convert(output_file, start=0, end=None)
-                      cv.close()
-                  except Exception as e:
-                      subprocess.run(["libreoffice", "--headless", "--convert-to", "docx", input_file, "--outdir", "work"])
-              else:
-                  subprocess.run(["libreoffice", "--headless", "--convert-to", "docx", input_file, "--outdir", "work"])
+              try:
+                  from pdf2docx import Converter
+                  cv = Converter(input_file)
+                  cv.convert(output_file, start=0, end=None)
+                  cv.close()
+              except Exception as e:
+                  print("pdf2docx exception:", e)
 
               drive_link = ""
               if drive_service and os.path.exists(output_file):
@@ -218,8 +184,6 @@ jobs:
           elif action == 'epub':
               output_file = os.path.join("work", f"{base_name}.epub")
               subprocess.run(["pandoc", input_file, "-o", output_file])
-              if not os.path.exists(output_file):
-                  subprocess.run(["libreoffice", "--headless", "--convert-to", "epub", input_file, "--outdir", "work"])
 
               drive_link = ""
               if drive_service and os.path.exists(output_file):
@@ -278,7 +242,7 @@ jobs:
 
           else: # default action: 'pdf'
               output_file = os.path.join("work", f"{base_name}.pdf")
-              subprocess.run(["libreoffice", "--headless", "--convert-to", "pdf", input_file, "--outdir", "work"])
+              subprocess.run(["pdftoppm", "-png", "-r", "150", input_file, os.path.join("work", "page")])
               
               drive_link = ""
               if drive_service and os.path.exists(output_file):
