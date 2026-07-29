@@ -40,8 +40,8 @@ app.post('/webhook', async (c) => {
       return c.text('OK');
     }
 
-    // Topic 4 (Office) Handler
-    if (threadId === 4) {
+    // Topic 4 (Office) or Document file Handler
+    if (threadId === 4 || (!threadId && msg.document)) {
       if (msg.document || (msg.text && (msg.text.includes('http://') || msg.text.includes('https://') || msg.text.includes('drive.google.com')))) {
         await promptOfficeActions(c.env, chatId, threadId, msg);
         return c.text('OK');
