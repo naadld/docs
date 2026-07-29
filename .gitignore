@@ -9,6 +9,10 @@ media_work/
 *.png
 *.docx
 *.epub
+*.py
+*.json
+!package.json
+!tsconfig.json
 service-account.json
 Notes
 .env

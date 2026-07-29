@@ -6,7 +6,7 @@ import urllib.error
 import datetime
 import html
 
-BOT_TOKEN = "8956702590:AAGwVRp1VsYm37uDvo50_yczDhkROrjoL6w"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = "-1004329103449"
 
 def render_progress_bar(percent_num: float, length: int = 10) -> str:

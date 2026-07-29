@@ -3,7 +3,7 @@ import json
 import urllib.request
 import datetime
 
-BOT_TOKEN = "8956702590:AAGwVRp1VsYm37uDvo50_yczDhkROrjoL6w"
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = "-1004329103449"
 # General Topic (Topic 1) omits message_thread_id in Telegram payload
 
