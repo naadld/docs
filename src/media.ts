@@ -11,32 +11,25 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * Trigger GitHub Actions Runner Engine via repository_dispatch API with 5 Colab Profiles Rotation
+ * Trigger GitHub Actions Media Downloader Engine via repository_dispatch API with 5 Colab Profiles Rotation
  */
-export async function handleOfficeAction(
+export async function handleMediaAction(
   env: Env,
   chatId: number | string,
   threadId: number | undefined,
-  action: string,
-  fileName: string = 'document.pdf',
-  fileId?: string,
-  messageId?: number
+  mediaUrl: string,
+  action: string = 'video'
 ) {
-  let actionTitle = 'CONVERT TO PDF';
-
-  if (action === 'pdf') actionTitle = 'CONVERT TO PDF';
-  else if (action === 'epub') actionTitle = 'CONVERT TO EPUB';
-  else if (action === 'unlock') actionTitle = 'UNLOCK PDF PASSWORD';
-  else if (action === 'docs') actionTitle = 'CONVERT PDF TO DOCS';
-  else if (action === 'png') actionTitle = 'CONVERT TO PNG IMAGES';
-  else if (action === 'split') actionTitle = 'SPLIT PDF PAGES';
+  let actionTitle = 'DOWNLOAD MEDIA VIDEO';
+  if (action.includes('mp3')) actionTitle = 'DOWNLOAD AUDIO MP3';
+  if (action.includes('pl')) actionTitle = 'DOWNLOAD PLAYLIST';
 
   const profileIndex = getNextColabProfileIndex();
 
   await sendTelegramMessage(
     env,
     chatId,
-    `🚀 <b>HaRI Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(fileName)}</code>...`,
+    `🚀 <b>HaRI Colab CLI [Profile #${profileIndex}]:</b> Triggering <b>[${actionTitle}]</b> for <code>${escapeHtml(mediaUrl.substring(0, 80))}</code>...`,
     'HTML',
     undefined,
     threadId
@@ -48,14 +41,12 @@ export async function handleOfficeAction(
 
   const url = `https://api.github.com/repos/${repoOwner}/${repoName}/dispatches`;
   const payload = {
-    event_type: "convert-document",
+    event_type: "download-media",
     client_payload: {
-      action,
       chat_id: chatId,
-      thread_id: threadId,
-      file_id: fileId,
-      file_name: fileName,
-      message_id: messageId,
+      thread_id: threadId || 6,
+      url: mediaUrl,
+      action: action,
       profile_index: profileIndex,
     },
   };
@@ -76,7 +67,7 @@ export async function handleOfficeAction(
       await sendTelegramMessage(
         env,
         chatId,
-        `⚡ <b>Colab Engine Dispatched!</b> Processing <code>${escapeHtml(fileName)}</code> via Gmail Profile #${profileIndex}. Output will arrive shortly!`,
+        `⚡ <b>Colab Engine Dispatched!</b> Downloading media via Gmail Profile #${profileIndex}, uploading to Google Drive Folder <code>1itDlaeJyzmp6m91RDtU6WzwhpL3Hq9pD</code>...`,
         'HTML',
         undefined,
         threadId
@@ -86,7 +77,7 @@ export async function handleOfficeAction(
       await sendTelegramMessage(
         env,
         chatId,
-        `❌ <b>GitHub Dispatch Error (${res.status}):</b> ${escapeHtml(errText)}`,
+        `❌ <b>GitHub Media Dispatch Error (${res.status}):</b> ${escapeHtml(errText)}`,
         'HTML',
         undefined,
         threadId
@@ -102,15 +93,4 @@ export async function handleOfficeAction(
       threadId
     );
   }
-}
-
-export async function processOfficeDocument(
-  env: Env,
-  chatId: number | string,
-  threadId: number | undefined,
-  telegramFileUrl: string,
-  originalFileName: string,
-  targetFormat: string = 'pdf'
-) {
-  await handleOfficeAction(env, chatId, threadId, targetFormat, originalFileName);
 }

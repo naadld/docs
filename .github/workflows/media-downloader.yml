@@ -1,4 +1,4 @@
-name: Media Downloader Engine
+name: Media Downloader Engine (Colab Rotated)
 
 on:
   repository_dispatch:
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg
           pip install --upgrade yt-dlp google-api-python-client google-auth requests pyrogram tgcrypto
 
-      - name: Execute Media Download & GDrive Upload
+      - name: Execute Media Download & GDrive Upload via Colab Engine
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
@@ -35,7 +35,10 @@ jobs:
           thread_id = payload.get('thread_id', 6)
           media_url = payload.get('url', '')
           action = payload.get('action', 'video')
+          profile_index = payload.get('profile_index', 1)
           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+          print(f"🚀 Colab CLI Media Engine active using Gmail Profile #{profile_index}")
 
           GDRIVE_FOLDER_MEDIA = "1itDlaeJyzmp6m91RDtU6WzwhpL3Hq9pD"
 
@@ -57,10 +60,10 @@ jobs:
                   return res.json().get('ok', False)
 
           if not media_url:
-              send_tg_msg("⚠️ <b>HaRI GitHub:</b> Invalid media link.")
+              send_tg_msg(f"⚠️ <b>HaRI Colab CLI [Profile #{profile_index}]:</b> Invalid media link.")
               sys.exit(0)
 
-          send_tg_msg(f"⚡ <b>yt-dlp Engine Active:</b> Downloading media from <code>{media_url}</code>...")
+          send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Downloading media from <code>{media_url}</code>...")
 
           out_dir = os.path.join("media_work", "output")
           os.makedirs(out_dir, exist_ok=True)
@@ -105,7 +108,7 @@ jobs:
           # 3. Upload downloaded media to Google Drive Media Folder
           media_files = [os.path.join(out_dir, f) for f in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, f))]
           if not media_files:
-              send_tg_msg("❌ <b>HaRI GitHub Error:</b> Could not download media file. Please check link validity.")
+              send_tg_msg(f"❌ <b>HaRI Colab Error [Profile #{profile_index}]:</b> Could not download media file.")
               sys.exit(0)
 
           gdrive_link = ""
@@ -136,7 +139,7 @@ jobs:
 
           safe_link = gdrive_link.replace('&', '&amp;')
           first_name = os.path.basename(media_files[0])
-          caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [MEDIA DOWNLOADER]</b>\n\n📄 <b>Downloaded:</b> <code>{first_name}</code>\n📦 <b>Files:</b> {total_files} file(s)\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Media File in Google Drive</a>" if safe_link else "")
+          caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [MEDIA DOWNLOADER]</b>\n\n📄 <b>Downloaded:</b> <code>{first_name}</code>\n📦 <b>Files:</b> {total_files} file(s)\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Media File in Google Drive</a>" if safe_link else "")
 
           # Send smaller file (< 50MB) directly to Telegram as attachment as well!
           first_size = os.path.getsize(media_files[0])

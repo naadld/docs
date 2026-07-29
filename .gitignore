@@ -1,19 +1,17 @@
-# Dependencies & Build
 node_modules/
 .wrangler/
 dist/
-build/
-
-# Private Credentials, Scripts & Notes
-Notes
+venv/
+work/
+torrent_work/
+media_work/
+*.pdf
+*.png
+*.docx
+*.epub
 service-account.json
+Notes
 .env
 *.pem
 *.key
 *.token
-*.py
-*.sh
-*.json
-!package.json
-!tsconfig.json
-!wrangler.toml

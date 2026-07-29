@@ -1,4 +1,4 @@
-name: Document Converter Engine
+name: Document Converter Engine (Colab Rotated)
 
 on:
   repository_dispatch:
@@ -17,7 +17,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends poppler-utils qpdf pandoc
           pip install pdf2docx google-api-python-client google-auth requests pyrogram tgcrypto
 
-      - name: Execute Document Conversion
+      - name: Execute Document Conversion via Colab Engine
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SERVICE_ACCOUNT_EMAIL: ${{ secrets.SERVICE_ACCOUNT_EMAIL }}
@@ -37,7 +37,10 @@ jobs:
           message_id = payload.get('message_id')
           file_name = payload.get('file_name', 'document.pdf')
           action = payload.get('action', 'docs')
+          profile_index = payload.get('profile_index', 1)
           bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+
+          print(f"🚀 Colab CLI Engine active using Gmail Profile #{profile_index}")
 
           GDRIVE_FOLDER_DOCUMENTS = "1hNATiBUyNByjFXD56S8Q4UwMo32RQ9VW"
 
@@ -110,7 +113,7 @@ jobs:
                   print("Pyrogram Download Exception:", pex)
 
           if not os.path.exists(input_file) or os.path.getsize(input_file) == 0:
-              send_tg_msg("⚠️ <b>HaRI GitHub:</b> Cannot download document file payload. Please resend document.")
+              send_tg_msg("⚠️ <b>HaRI Colab CLI:</b> Cannot download document file payload. Please resend document.")
               sys.exit(0)
 
           base_name = os.path.splitext(file_name)[0]
@@ -152,7 +155,7 @@ jobs:
                   drive_link = res.get('webViewLink', '')
 
               safe_link = drive_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT PDF TO DOCS]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.docx</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [CONVERT PDF TO DOCS]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.docx</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
               if not send_tg_doc(output_file, caption):
                   send_tg_msg(caption)
 
@@ -177,7 +180,7 @@ jobs:
                       print("GDrive PNG Upload Error:", e)
 
               safe_link = subfolder_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO PNG IMAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Pages Generated:</b> {len(png_files)} pages\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open PNG Pages Folder</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [CONVERT TO PNG IMAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Pages Generated:</b> {len(png_files)} pages\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open PNG Pages Folder</a>" if safe_link else "")
               if png_files:
                   send_tg_doc(png_files[0], caption)
               else:
@@ -194,7 +197,7 @@ jobs:
                   drive_link = res.get('webViewLink', '')
 
               safe_link = drive_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO EPUB]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.epub</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [CONVERT TO EPUB]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.epub</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
               if not send_tg_doc(output_file, caption):
                   send_tg_msg(caption)
 
@@ -211,7 +214,7 @@ jobs:
                   drive_link = res.get('webViewLink', '')
 
               safe_link = drive_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [UNLOCK PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}_unlocked.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [UNLOCK PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}_unlocked.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
               if not send_tg_doc(output_file, caption):
                   send_tg_msg(caption)
 
@@ -236,7 +239,7 @@ jobs:
                       print("GDrive Split Upload Error:", e)
 
               safe_link = subfolder_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [SPLIT PDF PAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Split Pages:</b> {len(split_files)} files\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Split Pages Folder</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [SPLIT PDF PAGES]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Split Pages:</b> {len(split_files)} files\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open Split Pages Folder</a>" if safe_link else "")
               if split_files:
                   send_tg_doc(split_files[0], caption)
               else:
@@ -253,7 +256,7 @@ jobs:
                   drive_link = res.get('webViewLink', '')
 
               safe_link = drive_link.replace('&', '&amp;')
-              caption = f"✅ <b>HARI GITHUB TASK COMPLETED: [CONVERT TO PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
+              caption = f"✅ <b>HARI COLAB TASK COMPLETED [Profile #{profile_index}]: [CONVERT TO PDF]</b>\n\n📄 <b>Original File:</b> <code>{file_name}</code>\n📦 <b>Output File:</b> <code>{base_name}.pdf</code>\n" + (f"📁 <b>GDrive:</b> <a href=\"{safe_link}\">Open File in Google Drive</a>" if safe_link else "")
               if not send_tg_doc(output_file, caption):
                   send_tg_msg(caption)
 
