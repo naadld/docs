@@ -40,58 +40,77 @@ jobs:
           file_id = payload.get('file_id')
           message_id = payload.get('message_id')
           profile_index = payload.get('profile_index', 1)
-          bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+          BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 
           print(f"🚀 Colab CLI Torrent Engine active using Gmail Profile #{profile_index}")
 
           GDRIVE_FOLDER_TORRENT = "1iuTERzYgM_tPiHcdc3CSxIsJdK96a5GO"
-
+          status_msg_id = None
+          
           def send_tg_msg(text):
-              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-              data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+              global status_msg_id
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+              data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
               if thread_id:
-                  data["message_thread_id"] = int(thread_id)
-              requests.post(url, json=data)
+                  data["message_thread_id"] = thread_id
+              try:
+                  res = requests.post(url, data=data).json()
+                  if res.get("ok"):
+                      status_msg_id = res["result"]["message_id"]
+                      return status_msg_id
+              except Exception as ex:
+                  print("Telegram send error:", ex)
+              return None
+
+          def update_tg_msg(msg_id, text):
+              if not msg_id:
+                  return
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+              data = {"chat_id": chat_id, "message_id": msg_id, "text": text, "parse_mode": "HTML"}
+              try:
+                  requests.post(url, data=data)
+              except Exception as ex:
+                  print("Telegram edit error:", ex)
 
           os.makedirs("torrent_work", exist_ok=True)
 
-          # 1. Download .torrent file from Telegram if file_id is provided
-          torrent_input = torrent_target
-          if file_id:
-              file_path = None
-              try:
-                  res = requests.get(f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}", timeout=15).json()
-                  if res.get('ok') and 'result' in res and 'file_path' in res['result']:
-                      file_path = res['result']['file_path']
-              except Exception as e:
-                  print("getFile error:", e)
-
-              if file_path:
+          # 1. Fetch Torrent payload
+          torrent_input = None
+          if target.startswith("magnet:"):
+              torrent_input = target
+          elif file_id:
+              url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+              res = requests.get(url).json()
+              if res.get("ok"):
+                  f_path = res["result"]["file_path"]
+                  dl_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{f_path}"
+                  r = requests.get(dl_url)
                   tf_path = os.path.join("torrent_work", "source.torrent")
-                  with requests.get(f"https://api.telegram.org/file/bot{bot_token}/{file_path}", stream=True) as r:
-                      with open(tf_path, 'wb') as f:
-                          for chunk in r.iter_content(8192):
-                              f.write(chunk)
+                  with open(tf_path, "wb") as f:
+                      f.write(r.content)
                   torrent_input = tf_path
-              elif message_id:
-                  try:
-                      from pyrogram import Client
-                      app = Client("tg_torrent_dl", api_id=611335, api_hash="d524b507821326ef78b2352d2fd01829", bot_token=bot_token, in_memory=True)
-                      with app:
-                          msg = app.get_messages(int(chat_id), int(message_id))
-                          tf_path = os.path.join("torrent_work", "source.torrent")
-                          app.download_media(msg, file_name=tf_path)
-                          torrent_input = tf_path
-                  except Exception as ex:
-                      print("Pyrogram torrent download error:", ex)
+
+          if not torrent_input and message_id:
+              api_id = 611335
+              api_hash = "d524b507821326ef78b2352d2fd01829"
+              try:
+                  from pyrogram import Client
+                  app = Client("pyro_bot", api_id=api_id, api_hash=api_hash, bot_token=BOT_TOKEN, in_memory=True)
+                  with app:
+                      msg = app.get_messages(int(chat_id), int(message_id))
+                      tf_path = os.path.join("torrent_work", "source.torrent")
+                      app.download_media(msg, file_name=tf_path)
+                      torrent_input = tf_path
+              except Exception as ex:
+                  print("Pyrogram torrent download error:", ex)
 
           if not torrent_input:
               send_tg_msg(f"⚠️ <b>HaRi Colab CLI [Profile #{profile_index}]:</b> Invalid torrent target or magnet link.")
               sys.exit(0)
 
-          send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Downloading Torrent with 1Gbps Azure bandwidth...")
+          status_id = send_tg_msg(f"⚡ <b>Colab Engine [Profile #{profile_index}]:</b> Initializing Torrent Engine...")
 
-          # 2. Execute aria2c download
+          # 2. Execute aria2c download with live progress updates
           out_dir = os.path.join("torrent_work", "output")
           os.makedirs(out_dir, exist_ok=True)
 
@@ -103,13 +122,37 @@ jobs:
               "--split=16",
               "--min-split-size=1M",
               "--bt-stop-timeout=300",
-              "--summary-interval=10",
+              "--summary-interval=2",
               torrent_input
           ]
 
-          p = subprocess.run(aria_cmd)
-          
-          # 3. Setup Google Drive Auth dynamically (Supports OAuth2 Authorized User Refresh Token or Service Account)
+          def make_bar(pct):
+              filled = int(pct / 10)
+              return "█" * filled + "░" * (10 - filled)
+
+          process = subprocess.Popen(aria_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+          last_update_time = 0
+
+          for line in iter(process.stdout.readline, ''):
+              m = re.search(r'([\d\.]+\w+)/([\d\.]+\w+)\((\d+)%\)(?:\s+CN:\d+)?(?:\s+DL:([\d\.]+\w+))?(?:\s+ETA:([\w]+))?', line)
+              if m:
+                  downloaded, total, pct, speed, eta = m.groups()
+                  now = time.time()
+                  if now - last_update_time >= 3.5:
+                      last_update_time = now
+                      pct_num = int(pct)
+                      bar = make_bar(pct_num)
+                      progress_text = (
+                          f"🚀 <b>Colab Engine [Profile #{profile_index}]: Downloading Torrent...</b>\n\n"
+                          f"<code>[{bar}] {pct}%</code>\n"
+                          f"⚡ <b>Speed:</b> {speed or 'N/A'} | ⏱️ <b>ETA:</b> {eta or 'Calculating...'}\n"
+                          f"📦 <b>Progress:</b> {downloaded} / {total}"
+                      )
+                      update_tg_msg(status_id, progress_text)
+
+          process.wait()
+
+          # 3. Setup Google Drive Auth dynamically
           profile_secret = os.environ.get(f'COLAB_PROFILE_{profile_index}', '').strip() or os.environ.get('SERVICE_ACCOUNT_PRIVATE_KEY', '').strip()
           sa_email = os.environ.get('SERVICE_ACCOUNT_EMAIL', '')
 
