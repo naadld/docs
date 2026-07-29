@@ -248,8 +248,8 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
     keyboard = {
       inline_keyboard: [
         [
-          { text: "🎼 [Download Playlist MP3]", callback_data: "med_yt_pl_mp3" },
-          { text: "🎬 [Download Playlist Video]", callback_data: "med_yt_pl_video" }
+          { text: "🎼 [Playlist MP3]", callback_data: "med_yt_pl_mp3" },
+          { text: "🎬 [Playlist Video]", callback_data: "med_yt_pl_video" }
         ]
       ]
     };
@@ -258,8 +258,8 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
     keyboard = {
       inline_keyboard: [
         [
-          { text: "🎬 [Download Video 1080p]", callback_data: "med_yt_video" },
-          { text: "🎵 [Download Audio MP3]", callback_data: "med_yt_mp3" }
+          { text: "🎬 [Video 1080p]", callback_data: "med_yt_video" },
+          { text: "🎵 [Audio MP3]", callback_data: "med_yt_mp3" }
         ]
       ]
     };
@@ -268,8 +268,8 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
     keyboard = {
       inline_keyboard: [
         [
-          { text: "🎬 [Download Video No Watermark]", callback_data: "med_tt_video" },
-          { text: "🎵 [Download Audio MP3]", callback_data: "med_tt_mp3" }
+          { text: "🎬 [Video No Watermark]", callback_data: "med_tt_video" },
+          { text: "🎵 [Audio MP3]", callback_data: "med_tt_mp3" }
         ]
       ]
     };
@@ -278,8 +278,8 @@ async function promptMediaActions(env: Env, chatId: number | string, threadId: n
     keyboard = {
       inline_keyboard: [
         [
-          { text: "🎬 [Download Video]", callback_data: "med_video" },
-          { text: "🎵 [Download MP3]", callback_data: "med_mp3" }
+          { text: "🎬 [Video]", callback_data: "med_video" },
+          { text: "🎵 [Audio MP3]", callback_data: "med_mp3" }
         ]
       ]
     };
